@@ -75,6 +75,37 @@ extern "C"
 #define URL_WRONLY 1
 #endif
 
+#ifndef PIX_FMT_RGB24
+#define PIX_FMT_RGB24       AV_PIX_FMT_RGB24
+#define PIX_FMT_YUV420P     AV_PIX_FMT_YUV420P
+#define PIX_FMT_BGR32       AV_PIX_FMT_BGR32
+#define PIX_FMT_RGB24       AV_PIX_FMT_RGB24
+#define PIX_FMT_RGB32       AV_PIX_FMT_RGB32
+#define PIX_FMT_YUYV422     AV_PIX_FMT_YUYV422
+
+#define PixelFormat AVPixelFormat
+
+#endif
+
+#ifndef CODEC_ID_MPEG1VIDEO
+#define CODEC_ID_MPEG1VIDEO AV_CODEC_ID_MPEG1VIDEO
+#define CODEC_ID_MPEG2VIDEO AV_CODEC_ID_MPEG2VIDEO
+#define CODEC_ID_MP2        AV_CODEC_ID_MP2
+#define CODEC_ID_DVVIDEO    AV_CODEC_ID_DVVIDEO
+#define CODEC_ID_DVAUDIO    AV_CODEC_ID_DVAUDIO
+#endif
+
+#ifndef CODEC_ID_PCM_S16LE
+#define CODEC_ID_PCM_S16LE  AV_CODEC_ID_PCM_S16LE
+#define CODEC_ID_PCM_S16BE  AV_CODEC_ID_PCM_S16BE
+#define CODEC_ID_PCM_U16LE  AV_CODEC_ID_PCM_U16LE
+#define CODEC_ID_PCM_U16BE  AV_CODEC_ID_PCM_U16BE
+#endif
+
+#if (LIBAVCODEC_VERSION_MAJOR >= 55)
+#define avcodec_alloc_frame av_frame_alloc
+#endif
+
 /**
 \cond
 */
@@ -2084,6 +2115,9 @@ int SDL_ffmpegDecodeAudioFrame( SDL_ffmpegFile *file, AVPacket *pack, SDL_ffmpeg
         file->audioStream->_ffmpeg->codec->hurry_up = 1;
 #endif
     }
+#if ( LIBAVCODEC_VERSION_MAJOR > 54 )
+    AVFrame *fr = av_frame_alloc();
+#endif
 
     while ( size > 0 )
     {
@@ -2091,6 +2125,10 @@ int SDL_ffmpegDecodeAudioFrame( SDL_ffmpegFile *file, AVPacket *pack, SDL_ffmpeg
 
 #if ( LIBAVCODEC_VERSION_MAJOR <= 52 && LIBAVCODEC_VERSION_MINOR <= 20 )
         int len = avcodec_decode_audio2( file->audioStream->_ffmpeg->codec, ( int16_t* )file->audioStream->sampleBuffer, &audioSize, pack->data, pack->size );
+#elif ( LIBAVCODEC_VERSION_MAJOR > 54 )
+        int len = avcodec_decode_audio4(file->audioStream->_ffmpeg->codec, fr, &audioSize, pack);
+        memcpy(( int16_t* )file->audioStream->sampleBuffer, fr->data[0], 
+            av_get_bytes_per_sample(file->audioStream->_ffmpeg->codec->sample_fmt) * file->audioStream->_ffmpeg->codec->channels * fr->nb_samples);
 #else
         int len = avcodec_decode_audio3( file->audioStream->_ffmpeg->codec, ( int16_t* )file->audioStream->sampleBuffer, &audioSize, pack );
 #endif
@@ -2106,6 +2144,9 @@ int SDL_ffmpegDecodeAudioFrame( SDL_ffmpegFile *file, AVPacket *pack, SDL_ffmpeg
         data += len;
         size -= len;
     }
+#if ( LIBAVCODEC_VERSION_MAJOR > 54 )
+    av_frame_free(&fr);
+#endif
 #if FF_API_HURRY_UP
     if ( !file->audioStream->_ffmpeg->codec->hurry_up )
 #else
