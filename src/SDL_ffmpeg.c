@@ -56,6 +56,25 @@ extern "C"
 #endif
 #endif
 
+#ifndef AVCODEC_MAX_AUDIO_FRAME_SIZE
+#define AVCODEC_MAX_AUDIO_FRAME_SIZE 192000
+#endif
+
+#ifndef CODEC_TYPE_UNKNOWN
+#define CODEC_TYPE_UNKNOWN    AVMEDIA_TYPE_UNKNOWN
+#define CODEC_TYPE_VIDEO      AVMEDIA_TYPE_VIDEO
+#define CODEC_TYPE_AUDIO      AVMEDIA_TYPE_AUDIO
+#define CODEC_TYPE_DATA       AVMEDIA_TYPE_DATA
+#define CODEC_TYPE_SUBTITLE   AVMEDIA_TYPE_SUBTITLE
+#define CODEC_TYPE_ATTACHMENT AVMEDIA_TYPE_ATTACHMENT
+#define CODEC_TYPE_NB         AVMEDIA_TYPE_NB
+#define PKT_FLAG_KEY          AV_PKT_FLAG_KEY
+#endif
+
+#ifndef URL_WRONLY
+#define URL_WRONLY 1
+#endif
+
 /**
 \cond
 */
@@ -307,11 +326,19 @@ void SDL_ffmpegFree( SDL_ffmpegFile *file )
     {
         if ( file->type == SDL_ffmpegInputStream )
         {
+#if (  LIBAVCODEC_VERSION_MAJOR < 54 ) 
             av_close_input_file( file->_ffmpeg );
+#else
+            avformat_close_input( &file->_ffmpeg);
+#endif
         }
         else if ( file->type == SDL_ffmpegOutputStream )
         {
+#if (  LIBAVCODEC_VERSION_MAJOR < 54 ) 
             url_fclose( file->_ffmpeg->pb );
+#else
+            avio_close( file->_ffmpeg->pb );
+#endif
 
             av_free( file->_ffmpeg );
         }
@@ -373,7 +400,11 @@ SDL_ffmpegFile* SDL_ffmpegOpen( const char* filename )
     file->type = SDL_ffmpegInputStream;
 
     /* open the file */
+#if ( LIBAVCODEC_VERSION_MAJOR < 54 )
     if ( av_open_input_file(( AVFormatContext** )( &file->_ffmpeg ), filename, 0, 0, 0 ) != 0 )
+#else
+    if ( avformat_open_input(( AVFormatContext** )( &file->_ffmpeg ), filename, 0, 0 ) != 0 )
+#endif
     {
         char c[512];
         snprintf( c, 512, "could not open \"%s\"", filename );
@@ -383,7 +414,11 @@ SDL_ffmpegFile* SDL_ffmpegOpen( const char* filename )
     }
 
     /* retrieve format information */
+#if ( LIBAVCODEC_VERSION_MAJOR < 54 )
     if ( av_find_stream_info( file->_ffmpeg ) < 0 )
+#else
+    if ( avformat_find_stream_info( file->_ffmpeg, NULL ) < 0 )
+#endif
     {
         char c[512];
         snprintf( c, 512, "could not retrieve file info for \"%s\"", filename );
@@ -422,7 +457,11 @@ SDL_ffmpegFile* SDL_ffmpegOpen( const char* filename )
                     free( stream );
                     SDL_ffmpegSetError( "could not find video codec" );
                 }
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
                 else if ( avcodec_open( file->_ffmpeg->streams[i]->codec, codec ) < 0 )
+#else
+                else if ( avcodec_open2( file->_ffmpeg->streams[i]->codec, codec, NULL ) < 0 )
+#endif
                 {
                     free( stream );
                     SDL_ffmpegSetError( "could not open video codec" );
@@ -469,7 +508,11 @@ SDL_ffmpegFile* SDL_ffmpegOpen( const char* filename )
                     free( stream );
                     SDL_ffmpegSetError( "could not find audio codec" );
                 }
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
                 else if ( avcodec_open( file->_ffmpeg->streams[i]->codec, codec ) < 0 )
+#else
+                else if ( avcodec_open2( file->_ffmpeg->streams[i]->codec, codec, NULL ) < 0 )
+#endif            
                 {
                     free( stream );
                     SDL_ffmpegSetError( "could not open audio codec" );
@@ -532,14 +575,21 @@ SDL_ffmpegFile* SDL_ffmpegCreate( const char* filename )
 #endif
     }
 
+#if ( LIBAVFORMAT_VERSION_MAJOR < 54 )
     /* preload as shown in ffmpeg.c */
     file->_ffmpeg->preload = ( int )( 0.5 * AV_TIME_BASE );
-
+#else
+    //TODO?
+#endif
     /* max delay as shown in ffmpeg.c */
     file->_ffmpeg->max_delay = ( int )( 0.7 * AV_TIME_BASE );
 
     /* open the output file, if needed */
+#if ( LIBAVFORMAT_VERSION_MAJOR < 53 )
     if ( url_fopen( &file->_ffmpeg->pb, filename, URL_WRONLY ) < 0 )
+#else
+    if ( avio_open( &file->_ffmpeg->pb, filename, URL_WRONLY ) < 0 )
+#endif
     {
         char c[512];
         snprintf( c, 512, "could not open \"%s\"", filename );
@@ -1526,16 +1576,28 @@ int SDL_ffmpegValidVideo( SDL_ffmpegFile* file )
 SDL_ffmpegStream* SDL_ffmpegAddVideoStream( SDL_ffmpegFile *file, SDL_ffmpegCodec codec )
 {
     /* add a video stream */
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
     AVStream *stream = av_new_stream( file->_ffmpeg, 0 );
+#else
+    AVStream *stream = avformat_new_stream( file->_ffmpeg, NULL);
+    if(stream) stream->id = 0;
+#endif
     if ( !stream )
     {
         SDL_ffmpegSetError( "could not allocate video stream" );
         return 0;
     }
 
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
     stream->codec = avcodec_alloc_context();
 
     avcodec_get_context_defaults2( stream->codec, CODEC_TYPE_VIDEO );
+#else
+    stream->codec = avcodec_alloc_context3(NULL);
+    AVCodec c= {0};
+    c.type = CODEC_TYPE_VIDEO;
+    avcodec_get_context_defaults3( stream->codec, &c );
+#endif
 
     if ( codec.videoCodecID < 0 )
     {
@@ -1543,7 +1605,11 @@ SDL_ffmpegStream* SDL_ffmpegAddVideoStream( SDL_ffmpegFile *file, SDL_ffmpegCode
     }
     else
     {
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
         stream->codec->codec_id = ( enum CodecID ) codec.videoCodecID;
+#else
+        stream->codec->codec_id = ( enum AVCodecID ) codec.videoCodecID;
+#endif
     }
 
     stream->codec->codec_type = CODEC_TYPE_VIDEO;
@@ -1594,7 +1660,11 @@ SDL_ffmpegStream* SDL_ffmpegAddVideoStream( SDL_ffmpegFile *file, SDL_ffmpegCode
     }
 
     /* open the codec */
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
     if ( avcodec_open( stream->codec, videoCodec ) < 0 )
+#else
+    if ( avcodec_open2( stream->codec, videoCodec, NULL ) < 0 )
+#endif
     {
         SDL_ffmpegSetError( "could not open video codec" );
         return 0;
@@ -1637,6 +1707,7 @@ SDL_ffmpegStream* SDL_ffmpegAddVideoStream( SDL_ffmpegFile *file, SDL_ffmpegCode
 
         *s = str;
 
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
         if ( av_set_parameters( file->_ffmpeg, 0 ) < 0 )
         {
             SDL_ffmpegSetError( "could not set encoding parameters" );
@@ -1644,6 +1715,9 @@ SDL_ffmpegStream* SDL_ffmpegAddVideoStream( SDL_ffmpegFile *file, SDL_ffmpegCode
 
         /* try to write a header */
         av_write_header( file->_ffmpeg );
+#else
+        avformat_write_header( file->_ffmpeg, NULL );
+#endif
     }
 
     return str;
@@ -1660,7 +1734,12 @@ SDL_ffmpegStream* SDL_ffmpegAddVideoStream( SDL_ffmpegFile *file, SDL_ffmpegCode
 SDL_ffmpegStream* SDL_ffmpegAddAudioStream( SDL_ffmpegFile *file, SDL_ffmpegCodec codec )
 {
     // add an audio stream
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
     AVStream *stream = av_new_stream( file->_ffmpeg, 1 );
+#else
+    AVStream *stream = avformat_new_stream( file->_ffmpeg, NULL );
+    if (stream) stream->id = 1;
+#endif
     if ( !stream )
     {
         SDL_ffmpegSetError( "could not allocate audio stream" );
@@ -1673,7 +1752,11 @@ SDL_ffmpegStream* SDL_ffmpegAddAudioStream( SDL_ffmpegFile *file, SDL_ffmpegCode
     }
     else
     {
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
         stream->codec->codec_id = ( enum CodecID ) codec.audioCodecID;
+#else
+        stream->codec->codec_id = ( enum AVCodecID ) codec.audioCodecID;
+#endif
     }
 
     stream->codec->codec_type = CODEC_TYPE_AUDIO;
@@ -1690,7 +1773,11 @@ SDL_ffmpegStream* SDL_ffmpegAddAudioStream( SDL_ffmpegFile *file, SDL_ffmpegCode
     }
 
     // open the codec
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
     if ( avcodec_open( stream->codec, audioCodec ) < 0 )
+#else
+    if ( avcodec_open2( stream->codec, audioCodec, NULL ) < 0 )
+#endif
     {
         SDL_ffmpegSetError( "could not open audio codec" );
         return 0;
@@ -1758,6 +1845,7 @@ SDL_ffmpegStream* SDL_ffmpegAddAudioStream( SDL_ffmpegFile *file, SDL_ffmpegCode
 
         *s = str;
 
+#if (LIBAVCODEC_VERSION_MAJOR < 54 )
         if ( av_set_parameters( file->_ffmpeg, 0 ) < 0 )
         {
             SDL_ffmpegSetError( "could not set encoding parameters" );
@@ -1766,6 +1854,9 @@ SDL_ffmpegStream* SDL_ffmpegAddAudioStream( SDL_ffmpegFile *file, SDL_ffmpegCode
 
         /* try to write a header */
         av_write_header( file->_ffmpeg );
+#else
+        avformat_write_header( file->_ffmpeg, NULL );
+#endif
     }
 
     return str;
@@ -1980,16 +2071,18 @@ int SDL_ffmpegDecodeAudioFrame( SDL_ffmpegFile *file, AVPacket *pack, SDL_ffmpeg
         /* return 0 to signal caller that 'pack' was not used */
         if ( frame->size == frame->capacity ) return 0;
     }
-
+#if FF_API_HURRY_UP
     file->audioStream->_ffmpeg->codec->hurry_up = 0;
-
+#endif
     /* calculate pts to determine wheter or not this frame should be stored */
     file->audioStream->sampleBufferTime = av_rescale(( pack->dts - file->audioStream->_ffmpeg->start_time ) * 1000, file->audioStream->_ffmpeg->time_base.num, file->audioStream->_ffmpeg->time_base.den );
 
     /* don't decode packets which are too old anyway */
     if ( file->audioStream->sampleBufferTime != AV_NOPTS_VALUE && file->audioStream->sampleBufferTime < file->minimalTimestamp )
     {
+#if FF_API_HURRY_UP
         file->audioStream->_ffmpeg->codec->hurry_up = 1;
+#endif
     }
 
     while ( size > 0 )
@@ -2013,8 +2106,11 @@ int SDL_ffmpegDecodeAudioFrame( SDL_ffmpegFile *file, AVPacket *pack, SDL_ffmpeg
         data += len;
         size -= len;
     }
-
+#if FF_API_HURRY_UP
     if ( !file->audioStream->_ffmpeg->codec->hurry_up )
+#else
+    if (0)
+#endif
     {
         /* set new pts */
         if ( !frame->size ) frame->pts = file->audioStream->sampleBufferTime;
@@ -2088,6 +2184,7 @@ int SDL_ffmpegDecodeVideoFrame( SDL_ffmpegFile* file, AVPacket *pack, SDL_ffmpeg
             frame->pts = av_rescale(( pack->dts - file->videoStream->_ffmpeg->start_time ) * 1000, file->videoStream->_ffmpeg->time_base.num, file->videoStream->_ffmpeg->time_base.den );
         }
 
+#if FF_API_HURRY_UP
         /* check if we are decoding frames which we need not store */
         if ( frame->pts != AV_NOPTS_VALUE && frame->pts < file->minimalTimestamp )
         {
@@ -2097,7 +2194,7 @@ int SDL_ffmpegDecodeVideoFrame( SDL_ffmpegFile* file, AVPacket *pack, SDL_ffmpeg
         {
             file->videoStream->_ffmpeg->codec->hurry_up = 0;
         }
-
+#endif
         /* Decode the packet */
 #if ( ( LIBAVCODEC_VERSION_MAJOR <= 52 ) && ( LIBAVCODEC_VERSION_MINOR <= 20 ) )
         avcodec_decode_video( file->videoStream->_ffmpeg->codec, file->videoStream->decodeFrame, &got_frame, pack->data, pack->size );
@@ -2122,7 +2219,11 @@ int SDL_ffmpegDecodeVideoFrame( SDL_ffmpegFile* file, AVPacket *pack, SDL_ffmpeg
     }
 
     /* if we did not get a frame or we need to hurry, we return */
+#if FF_API_HURRY_UP
     if ( got_frame && !file->videoStream->_ffmpeg->codec->hurry_up )
+#else
+    if ( got_frame )
+#endif
     {
         /* convert YUV 420 to YUYV 422 data */
         if ( frame->overlay && frame->overlay->format == SDL_YUY2_OVERLAY )
