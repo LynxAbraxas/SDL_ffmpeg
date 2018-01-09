@@ -2104,6 +2104,8 @@ int SDL_ffmpegDecodeAudioFrame( SDL_ffmpegFile *file, AVPacket *pack, SDL_ffmpeg
     }
 #if FF_API_HURRY_UP
     file->audioStream->_ffmpeg->codec->hurry_up = 0;
+#else
+    file->audioStream->_ffmpeg->codec->skip_frame = AVDISCARD_DEFAULT;
 #endif
     /* calculate pts to determine wheter or not this frame should be stored */
     file->audioStream->sampleBufferTime = av_rescale(( pack->dts - file->audioStream->_ffmpeg->start_time ) * 1000, file->audioStream->_ffmpeg->time_base.num, file->audioStream->_ffmpeg->time_base.den );
@@ -2113,6 +2115,8 @@ int SDL_ffmpegDecodeAudioFrame( SDL_ffmpegFile *file, AVPacket *pack, SDL_ffmpeg
     {
 #if FF_API_HURRY_UP
         file->audioStream->_ffmpeg->codec->hurry_up = 1;
+#else
+        file->audioStream->_ffmpeg->codec->skip_frame = AVDISCARD_NONKEY;
 #endif
     }
 #if ( LIBAVCODEC_VERSION_MAJOR > 54 )
@@ -2150,7 +2154,7 @@ int SDL_ffmpegDecodeAudioFrame( SDL_ffmpegFile *file, AVPacket *pack, SDL_ffmpeg
 #if FF_API_HURRY_UP
     if ( !file->audioStream->_ffmpeg->codec->hurry_up )
 #else
-    if (1)
+    if ( !file->audioStream->_ffmpeg->codec->skip_frame )
 #endif
     {
         /* set new pts */
@@ -2225,17 +2229,23 @@ int SDL_ffmpegDecodeVideoFrame( SDL_ffmpegFile* file, AVPacket *pack, SDL_ffmpeg
             frame->pts = av_rescale(( pack->dts - file->videoStream->_ffmpeg->start_time ) * 1000, file->videoStream->_ffmpeg->time_base.num, file->videoStream->_ffmpeg->time_base.den );
         }
 
-#if FF_API_HURRY_UP
         /* check if we are decoding frames which we need not store */
         if ( frame->pts != AV_NOPTS_VALUE && frame->pts < file->minimalTimestamp )
         {
+#if FF_API_HURRY_UP
             file->videoStream->_ffmpeg->codec->hurry_up = 1;
+#else
+            file->videoStream->_ffmpeg->codec->skip_frame = AVDISCARD_NONKEY;
+#endif
         }
         else
         {
+#if FF_API_HURRY_UP
             file->videoStream->_ffmpeg->codec->hurry_up = 0;
-        }
+#else
+            file->videoStream->_ffmpeg->codec->skip_frame = AVDISCARD_DEFAULT;
 #endif
+        }
         /* Decode the packet */
 #if ( ( LIBAVCODEC_VERSION_MAJOR <= 52 ) && ( LIBAVCODEC_VERSION_MINOR <= 20 ) )
         avcodec_decode_video( file->videoStream->_ffmpeg->codec, file->videoStream->decodeFrame, &got_frame, pack->data, pack->size );
@@ -2263,7 +2273,7 @@ int SDL_ffmpegDecodeVideoFrame( SDL_ffmpegFile* file, AVPacket *pack, SDL_ffmpeg
 #if FF_API_HURRY_UP
     if ( got_frame && !file->videoStream->_ffmpeg->codec->hurry_up )
 #else
-    if ( got_frame )
+    if ( got_frame && !file->videoStream->_ffmpeg->codec->skip_frame )
 #endif
     {
         /* convert YUV 420 to YUYV 422 data */
