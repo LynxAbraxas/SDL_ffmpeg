@@ -2150,7 +2150,7 @@ int SDL_ffmpegDecodeAudioFrame( SDL_ffmpegFile *file, AVPacket *pack, SDL_ffmpeg
 #if FF_API_HURRY_UP
     if ( !file->audioStream->_ffmpeg->codec->hurry_up )
 #else
-    if (0)
+    if (1)
 #endif
     {
         /* set new pts */
