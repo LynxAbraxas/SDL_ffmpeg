@@ -43,7 +43,7 @@ uint64_t getSync()
 {
     if ( file )
     {
-        if ( SDL_ffmpegValidAudio( file ) )
+        if ( SDL_ffmpegValidAudio( file ) && sync)
         {
             return sync;
         }
