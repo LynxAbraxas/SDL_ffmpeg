@@ -1364,11 +1364,20 @@ float SDL_ffmpegGetFrameRate( SDL_ffmpegStream *stream, int *nominator, int *den
 {
     if ( stream && stream->_ffmpeg && stream->_ffmpeg->codec )
     {
-        if ( nominator ) *nominator = stream->_ffmpeg->r_frame_rate.num;
+        #if defined(AVFORMAT_HAS_STREAM_GET_R_FRAME_RATE)
+        AVRational r_frame_rate = av_stream_get_r_frame_rate(stream->_ffmpeg);
+        #else
+        AVRational r_frame_rate = stream->_ffmpeg->r_frame_rate;
+        #endif
+        // Audio stream doesn't have frame rate, return 0, as it's better then NaN
+        if (r_frame_rate.den == 0 ) {
+            r_frame_rate.den = 1;
+        }
+        if ( nominator ) *nominator = r_frame_rate.num;
 
-        if ( denominator ) *denominator = stream->_ffmpeg->r_frame_rate.den;
+        if ( denominator ) *denominator = r_frame_rate.den;
 
-        return ( float )stream->_ffmpeg->r_frame_rate.num / stream->_ffmpeg->r_frame_rate.den;
+        return ( float )r_frame_rate.num / r_frame_rate.den;
     }
     else
     {
